@@ -28,6 +28,7 @@
 #include <ESP8266WiFi.h>
 #include <stdio.h>
 #include "ESPDatagram.h"
+#include "esp_wifi_types.h"
 
 // For some reason on my ESP8266 board, the builtin LED is off when the pin
 // is set to HIGH, and on when the pin is set to LOW.  So...
@@ -73,7 +74,7 @@ unsigned long gDatagramDisassocCount[15] = {0};
 /*
  *  Forward declarations
  */
-void promiscuous_callback(uint8_t *buf, uint16_t len);
+void promiscuous_callback(void *buf, wifi_promiscuous_pkt_type_t len);
 void print_report();
 
 void setup() {
@@ -182,29 +183,34 @@ void loop() {
  * Promiscuous Mode Callback
  */
  
-void promiscuous_callback(uint8_t *buf, uint16_t len) {
+void promiscuous_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
   gCallbackCount[0]++;
   gCallbackCount[gCurrentChannel]++;
 
-  switch(len) {
-    case 12:
+  switch(type) {
+    case WiFi.WIFI_PKT_MGMT:
     {
       gDatagramCount_012[0]++;
       gDatagramCount_012[gCurrentChannel]++;
     }
     break;
 
-    case 60:
+    case WiFi.WIFI_PKT_CTRL:
     {
       gDatagramCount_060[0]++;
       gDatagramCount_060[gCurrentChannel]++;
     }
     break;
 
-    case 128:
+    case WiFi.WIFI_PKT_DATA:
     {
       gDatagramCount_128[0]++;
       gDatagramCount_128[gCurrentChannel]++;
+    }
+    break;
+
+    case WiFi.WIFI_PKT_MISC:
+    {
     }
     break;
 
