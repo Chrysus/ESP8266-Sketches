@@ -7,7 +7,7 @@
   * See Chapter 14
  */
 
-struct RxControl {
+struct PacketData {
   signed rssi            : 8;         // signal intensity of packet
   unsigned rate          : 4;
   unsigned is_group      : 1;
@@ -34,25 +34,35 @@ struct RxControl {
   unsigned               :12;
 };
 
-struct LenSeq{
-  u16 len;                            // length of packet
-  u16 seq;                            // serial number of packet, the high 12bits are serial number,
-                                      // low 14 bits are Fragment number (usually be 0)
-  u8 addr3[6];                        // the third address in packet
+// IEEE80211 packet header
+
+struct PacketHeader {
+  byte frame_control[2];
+  byte duration[2];
+  byte mac_address_1[6];
+  byte mac_address_2[6];
+  byte mac_address_3[6];
+  byte seq_ctl[2];
+  byte mac_address_4[6];
+  byte qos_control[2];
+  byte HT_control[4];
 };
 
-struct sniffer_buf{
-  struct RxControl rx_ctrl;
-  u8 buf[36];                         // head of ieee80211 packet
-  u16 cnt;                            // number count of packet
-  struct LenSeq lenseq[1];            //length of packet
+struct PromiscuousDataSmall {
+  struct PacketData packet_data;
+  struct PacketHeader packet_header;
+  uint16_t count;                     // number count of packet
+  uint16_t len;                       // length of the packet
+  uint16_t seq;                       // serial number of the packet, the high 12 bits are the serial number,
+                                      // the low 14 bits are fragment number (this will generally be 0)
+  uint8_t mac_address_3[6];
 };
 
-struct sniffer_buf2{
-  struct RxControl rx_ctrl;
-  u8 buf[112];                        //may be 240, please refer to the real source code
-  u16 cnt;
-  u16 len;                            //length of packet
+struct PromiscuousDataLarge {
+  struct PacketData packet_data;
+  uint8_t buf[112];                    // this may be 240, please refer to the real source code
+  uint16_t count;                      // number count of packet
+  uint16_t len;                        // length of packet
 };
 
 
