@@ -7,7 +7,7 @@
   * See Chapter 14
  */
 
-struct PacketData {
+struct PacketInfo {
   signed rssi            : 8;         // signal intensity of packet
   unsigned rate          : 4;
   unsigned is_group      : 1;
@@ -48,8 +48,8 @@ struct PacketHeader {
   byte HT_control[4];
 };
 
-struct PromiscuousDataSmall {
-  struct PacketData packet_data;
+struct PromiscuousInfoSmall {
+  struct PacketInfo packet_info;
   struct PacketHeader packet_header;
   uint16_t count;                     // number count of packet
   uint16_t len;                       // length of the packet
@@ -58,28 +58,96 @@ struct PromiscuousDataSmall {
   uint8_t mac_address_3[6];
 };
 
-struct PromiscuousDataLarge {
-  struct PacketData packet_data;
+struct PromiscuousInfoLarge {
+  struct PacketInfo packet_info;
   uint8_t buf[112];                    // this may be 240, please refer to the real source code
   uint16_t count;                      // number count of packet
   uint16_t len;                        // length of packet
 };
 
+void print_mac_address(const uint8_t *mac_address) {
+  for (int i = 0; i < 5; i++) Serial.printf("%02x:", mac_address[i]);
+  Serial.printf("%02x", mac_address[5]);
+}
 
+struct ESPDatagramBeaconSSID {
+  byte element_id;
+  byte length;
+  char ssid[32];                //<-- this is of variable length, up to 32 bytes
+};
+
+struct BeaconFrameHeader {
+  byte frame_control[2];
+  byte duration[2];
+  byte mac_address_1[6];
+  byte mac_address_2[6];
+  byte mac_address_3[6];
+  byte seq_ctl[2];
+};
+
+struct ESPDatagramBeaconFrameBody {
+  byte timestamp[8];
+  byte beacon_interval[2];
+  byte capability_info[2];
+  struct ESPDatagramBeaconSSID ssid;
+};
+
+void print_ssid(const ESPDatagramBeaconSSID *ssid) {
+  uint8_t length = ssid->length;
+  
+  char *ssid_string = new char[length + 1]();
+  memcpy(ssid_string, ssid->ssid, length);
+  ssid_string[length] = '\0';
+  Serial.printf("%s", ssid_string);
+
+  delete(ssid_string);
+};
+
+// Frame Types
+
+const unsigned kType_Management = 0b00;
+const unsigned kType_Control    = 0b01;
+const unsigned kType_Data       = 0b10;
+const unsigned kType_Reserved   = 0b11;
+
+// Management Frame Subtypes
+
+const unsigned kSubtype_Mgmt_AssocReq = 0b0000;
+const unsigned kSubtype_Mgmt_ProbeReq = 0b0100;
+const unsigned kSubtype_Mgmt_Beacon   = 0b1000;
+const unsigned kSubtype_Mgmt_Disassoc = 0b1010;
+
+struct FrameControl {
+  unsigned protocol : 2;
+  unsigned type : 2;
+  unsigned subtype : 4;
+  unsigned toDS : 1;
+  unsigned fromDS : 1;
+  unsigned moreFrag : 1;
+  unsigned retry : 1;
+  unsigned powerMgmt: 1;
+  unsigned moreData : 1;
+  unsigned protectedFrame : 1;
+  unsigned order : 1;
+};
 
 /*
 
 https://www.espressif.com/sites/default/files/documentation/esp8266-technical_reference_en.pdf
 
 
-  Callback wifi_promiscuous_rx has two parameters (buf and len). len means the
-length of buf, it can be: len = sizeof(struct sniffer_buf2), len = X * 10, len = sizeof(struct
-RxControl):
+Callback wifi_promiscuous_rx has two parameters (buf and len). 
+len means the length of buf, it can be: 
+  len = sizeof(struct sniffer_buf2), 
+  len = X * 10, 
+  len = sizeof(struct RxControl):
+    
 Case of LEN == sizeof (struct sniffer_buf2)
 • buf contains structure sniffer_buf2: it is the management packet, it has 112
 Bytes data.
 • sniffer_buf2.cnt is 1.
 • sniffer_buf2.len is the length of packet.
+
 Case of LEN == X * 10
 • buf contains structure sniffer_buf: this structure is reliable, data packets
 represented by it has been verified by CRC.
@@ -96,6 +164,7 @@ similar, so we only provide the length of each packet (from head of MAC packet t
 FCS)
 • This structure contains: length of packet, MAC address of both sides of
 communication, length of the head of packet.
+
 Case of LEN == sizeof(struct RxControl)
 • buf contains structure RxControl; but this structure is not reliable, we can not get
 neither MAC address of both sides of communication nor length of the head of

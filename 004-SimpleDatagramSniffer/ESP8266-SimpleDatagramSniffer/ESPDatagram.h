@@ -73,7 +73,28 @@ struct ESPDatagramMACHeader {
   byte seq_ctl[2];
 };
 
+struct ESPDatagramBeaconSSID {
+  byte element_id;
+  byte length;
+  char *ssid;                 //<-- this is of variable length, up to 32 bytes
+};
+
+struct ESPDatagramBeaconFrameBody {
+  byte timestamp[8];
+  byte beacon_interval[2];
+  byte capability_info[2];
+  ESPDatagramBeaconSSID *ssid;
+};
+
+
 void print_mac_address(const uint8_t *mac_address) {
   for (int i = 0; i < 5; i++) Serial.printf("%02x:", mac_address[i]);
   Serial.printf("%02x", mac_address[5]);
 }
+
+void print_ssid(const ESPDatagramBeaconSSID *ssid) {
+  char *ssid_string = new char[ssid->length + 1];
+  memcpy(ssid_string, ssid->ssid, ssid->length);
+  ssid_string[ssid->length] = '\0';
+  Serial.print(ssid_string);
+};

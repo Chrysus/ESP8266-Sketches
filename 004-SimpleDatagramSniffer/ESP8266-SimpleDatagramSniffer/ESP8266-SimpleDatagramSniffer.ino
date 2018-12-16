@@ -27,8 +27,7 @@
 
 #include <ESP8266WiFi.h>
 #include <stdio.h>
-#include "ESPDatagram.h"
-#include "esp_wifi_types.h"
+#include "ESP8266-Structures.h"
 
 // For some reason on my ESP8266 board, the builtin LED is off when the pin
 // is set to HIGH, and on when the pin is set to LOW.  So...
@@ -60,7 +59,7 @@ unsigned long gDatagramCount_128[15] = {0};
 unsigned long gDatagramCount_Other[15] = {0};
 
 unsigned long gDatagramTypeMgmtCount[15] = {0};
-unsigned long gDatagramTypeCntlCount[15] = {0};
+unsigned long gDatagramTypeCtrlCount[15] = {0};
 unsigned long gDatagramTypeDataCount[15] = {0};
 unsigned long gDatagramTypeRsrvCount[15] = {0};
 
@@ -74,7 +73,7 @@ unsigned long gDatagramDisassocCount[15] = {0};
 /*
  *  Forward declarations
  */
-void promiscuous_callback(void *buf, wifi_promiscuous_pkt_type_t len);
+void promiscuous_callback(uint8_t *buf, uint16_t len);
 void print_report();
 
 void setup() {
@@ -166,7 +165,7 @@ void loop() {
   
   long packetsDetectedSinceLastPrint = gCallbackCount[0] - prevPrintCallbackCount;
   
-  if ((packetsDetectedSinceLastPrint >= 100) || bReportRequestd) {
+  if ((packetsDetectedSinceLastPrint >= 500) || bReportRequestd) {
     print_report();
     prevPrintCallbackCount = gCallbackCount[0];
   }
@@ -183,34 +182,29 @@ void loop() {
  * Promiscuous Mode Callback
  */
  
-void promiscuous_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
+void promiscuous_callback(uint8_t *buf, uint16_t len) {
   gCallbackCount[0]++;
   gCallbackCount[gCurrentChannel]++;
 
-  switch(type) {
-    case WiFi.WIFI_PKT_MGMT:
+  switch(len) {
+    case 12:
     {
       gDatagramCount_012[0]++;
       gDatagramCount_012[gCurrentChannel]++;
     }
     break;
 
-    case WiFi.WIFI_PKT_CTRL:
+    case 60:
     {
       gDatagramCount_060[0]++;
       gDatagramCount_060[gCurrentChannel]++;
     }
     break;
 
-    case WiFi.WIFI_PKT_DATA:
+    case 128:
     {
       gDatagramCount_128[0]++;
       gDatagramCount_128[gCurrentChannel]++;
-    }
-    break;
-
-    case WiFi.WIFI_PKT_MISC:
-    {
     }
     break;
 
@@ -222,94 +216,138 @@ void promiscuous_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
     break;
   }
 
-  //struct ESPDatagramMACHeader *frame_header = (struct ESPDatagramMACHeader *)buf;
-  //struct ESPDatagramFrameControl *frame_control = (struct ESPDatagramFrameControl *)frame_header->frame_control;
+  if (len == 128) {
+    struct PromiscuousInfoLarge *packet_info = (struct PromiscuousInfoLarge *)buf;
 
-  if (len < sizeof(struct ESPDatagramMACHeader)) {
-    return;
-  }
+    PacketHeader *packet_header = (PacketHeader *)packet_info->buf;
+    FrameControl *frame_control = (FrameControl *)packet_header->frame_control;
 
-  struct ESPDatagramMACHeader *frame_header = new ESPDatagramMACHeader();
-  struct ESPDatagramFrameControl *frame_control = new ESPDatagramFrameControl();
+    if (frame_control->type == kType_Management) {
+      gDatagramTypeMgmtCount[0]++;
+      gDatagramTypeMgmtCount[gCurrentChannel]++;
 
-  memcpy(frame_header, buf, sizeof(struct ESPDatagramMACHeader));
-  memcpy(frame_control, frame_header->frame_control, sizeof(struct ESPDatagramFrameControl));
-
-  if (frame_control->protocol != 0b00) {
-    Serial.printf("ERROR - BAD PROTOCOL VALUE: %d", frame_control->protocol);
-  }
-
-  if (frame_control->type == kType_Management) {
-    Serial.print(frame_control->subtype, BIN);
-    Serial.printf("\tMGMT");
-    gDatagramTypeMgmtCount[0]++;
-    gDatagramTypeMgmtCount[gCurrentChannel]++;
-    
-    if (frame_control->subtype == kSubtype_Mgmt_AssocReq) {
-      Serial.printf("\tAssoc\n");
-      gDatagramAssocCount[0]++;
-      gDatagramAssocCount[gCurrentChannel]++;
-    } else if (frame_control->subtype == kSubtype_Mgmt_ProbeReq) {
-      Serial.printf("\tProbe\n");
-      gDatagramProbeCount[0]++;
-      gDatagramProbeCount[gCurrentChannel]++;
-    } else if (frame_control->subtype == kSubtype_Mgmt_Beacon) {
-      Serial.printf("\tBeacon <-----------------------------\n");
-      gDatagramBeaconCount[0]++;
-      gDatagramBeaconCount[gCurrentChannel]++;
-    } else if (frame_control->subtype == kSubtype_Mgmt_Disassoc) {
-      Serial.printf("\tDisassoc");
-      Serial.printf("\t");
-      print_mac_address(frame_header->mac_address_1);
-      Serial.printf("\t");
-      print_mac_address(frame_header->mac_address_2);
-      Serial.printf("\tMy MAC: ");
-      print_mac_address(gMyMAC);
-      Serial.printf("\n");
-      gDatagramDisassocCount[0]++;
-      gDatagramDisassocCount[gCurrentChannel]++;
-    } else {
-      Serial.printf("\tOther\n");
-    }
-  } else if (frame_control->type == kType_Control) {
-    Serial.printf("\tCNTL\n");
+      bool bShouldPrintMACAddresses = true;
       
-    Serial.printf("\t");
-    print_mac_address(frame_header->mac_address_1);
-    Serial.printf("\t");
-    print_mac_address(frame_header->mac_address_2);
-    Serial.printf("\tMy MAC: ");
-    print_mac_address(gMyMAC);
-    Serial.printf("\n");
-    
-    gDatagramTypeCntlCount[0]++;
-    gDatagramTypeCntlCount[gCurrentChannel]++;
-  } else if (frame_control->type == kType_Data) {
-    Serial.printf("\tDATA\n");
+      Serial.print("MGMT");
+      if (frame_control->subtype == kSubtype_Mgmt_AssocReq) {
+        Serial.print("\tASSOC");
+      } else if (frame_control->subtype == kSubtype_Mgmt_ProbeReq) {
+        Serial.print("\tPROBE");
+      } else if (frame_control->subtype == kSubtype_Mgmt_Beacon) {
+        Serial.print("\tBEACON");
+      } else if (frame_control->subtype == kSubtype_Mgmt_Disassoc) {
+        Serial.print("\tDISSOC");
+      } else {
+        Serial.print("\tOTHER?");
+      }
 
-    Serial.printf("\t");
-    print_mac_address(frame_header->mac_address_1);
-    Serial.printf("\t");
-    print_mac_address(frame_header->mac_address_2);
-    Serial.printf("\tMy MAC: ");
-    print_mac_address(gMyMAC);
-    Serial.printf("\n");
-    
-    gDatagramTypeDataCount[0]++;
-    gDatagramTypeDataCount[gCurrentChannel]++;
-  } else if (frame_control->type == kType_Reserved) {
-    Serial.printf("\tRSRV\n");
+      if (bShouldPrintMACAddresses) {
+        Serial.print("\t");
+        print_mac_address(packet_header->mac_address_1);
+        Serial.print("\t");
+        print_mac_address(packet_header->mac_address_2);
+        Serial.print("\t");
+        print_mac_address(packet_header->mac_address_3);
+      }
 
-    Serial.printf("\t");
-    print_mac_address(frame_header->mac_address_1);
-    Serial.printf("\t");
-    print_mac_address(frame_header->mac_address_2);
-    Serial.printf("\tMy MAC: ");
-    print_mac_address(gMyMAC);
-    Serial.printf("\n");
+      if (frame_control->subtype == kSubtype_Mgmt_Beacon) {
+        Serial.print("\t");
+        
+        void *frame_header_ptr = packet_info->buf;
+        void *frame_body_ptr = frame_header_ptr + sizeof(struct BeaconFrameHeader);
+        
+        struct BeaconFrameHeader *frame_header = (struct BeaconFrameHeader *)frame_header_ptr;
+        struct ESPDatagramBeaconFrameBody *frame_body = (struct ESPDatagramBeaconFrameBody *)frame_body_ptr;
+        struct ESPDatagramBeaconSSID *ssid_ptr = &(frame_body->ssid);
+        
+        if (ssid_ptr->element_id != 0) {
+          Serial.printf("ERROR - BAD ELEMENT ID");
+        } else {
+          uint8_t ssid_length = ssid_ptr->length;
+          
+          if (ssid_length > 0) {
+            char *ssid_string = new char[ssid_length + 1]();
+            memcpy(ssid_string, ssid_ptr->ssid, ssid_length);
+            ssid_string[ssid_length] = '\0';
+        
+            Serial.printf("SSID - %s", ssid_string);
+
+            delete(ssid_string);
+          }
+        }
+      }
+      Serial.print("\n");
+    } else if (frame_control->type == kType_Control) {
+      gDatagramTypeCtrlCount[0]++;
+      gDatagramTypeCtrlCount[gCurrentChannel]++;
+      
+      Serial.print("CTRL");
+    } else if (frame_control->type == kType_Data) {
+      gDatagramTypeDataCount[0]++;
+      gDatagramTypeDataCount[gCurrentChannel]++;
+      
+      Serial.print("DATA");
+    } else if (frame_control->type == kType_Reserved) {
+      gDatagramTypeRsrvCount[0]++;
+      gDatagramTypeRsrvCount[gCurrentChannel]++;
+      
+      Serial.print("RSVD");
+    } else {
+      Serial.print("ERROR!");
+    }
+  }
+
+  if (len == 60) {
+    struct PromiscuousInfoSmall *packet_info = (struct PromiscuousInfoSmall *)buf;
+
+    FrameControl *frame_control = (FrameControl *)packet_info->packet_header.frame_control;
+
+    bool bShouldPrintMACAddresses = false;
     
-    gDatagramTypeRsrvCount[0]++;
-    gDatagramTypeRsrvCount[gCurrentChannel]++;
+    if (frame_control->type == kType_Management) {
+      gDatagramTypeMgmtCount[0]++;
+      gDatagramTypeMgmtCount[gCurrentChannel]++;
+      
+      Serial.print("MGMT");
+      if (frame_control->subtype == kSubtype_Mgmt_AssocReq) {
+        Serial.print("\tASSOC");
+      } else if (frame_control->subtype == kSubtype_Mgmt_ProbeReq) {
+        Serial.print("\tPROBE");
+      } else if (frame_control->subtype == kSubtype_Mgmt_Beacon) {
+        Serial.print("\tBEACON");
+      } else if (frame_control->subtype == kSubtype_Mgmt_Disassoc) {
+        Serial.print("\tDISSOC");
+      }
+      bShouldPrintMACAddresses = true;
+    } else if (frame_control->type == kType_Control) {
+      gDatagramTypeCtrlCount[0]++;
+      gDatagramTypeCtrlCount[gCurrentChannel]++;
+      
+      Serial.print("CTRL");
+      bShouldPrintMACAddresses = true;
+    } else if (frame_control->type == kType_Data) {
+      gDatagramTypeDataCount[0]++;
+      gDatagramTypeDataCount[gCurrentChannel]++;
+      
+      Serial.print("DATA");
+    } else if (frame_control->type == kType_Reserved) {
+      gDatagramTypeRsrvCount[0]++;
+      gDatagramTypeRsrvCount[gCurrentChannel]++;
+      
+      Serial.print("RSVD");
+    } else {
+      Serial.print("ERROR!");
+    }
+
+    if (bShouldPrintMACAddresses) {
+      Serial.print("\t");
+      print_mac_address(packet_info->packet_header.mac_address_1);
+      Serial.print("\t");
+      print_mac_address(packet_info->packet_header.mac_address_2);
+      Serial.print("\t");
+      print_mac_address(packet_info->packet_header.mac_address_3);
+      Serial.print("\n");
+    }
   }
 }
 
@@ -328,11 +366,11 @@ void promiscuous_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
    Serial.println("\n-------------------------------------------------------------------------------------");
 
    for (unsigned int channel_index = 1; channel_index < 15; channel_index++) {
-     Serial.printf("CHANNEL %2d:\t%7lu\n", channel_index, gCallbackCount[channel_index]);
+     Serial.printf("CHANNEL %2d:\t%7lu\t\t%7lu\t%7lu\t%7lu\t%7lu\n", channel_index, gCallbackCount[channel_index], gDatagramTypeMgmtCount[channel_index], gDatagramTypeCtrlCount[channel_index], gDatagramTypeDataCount[channel_index], gDatagramTypeRsrvCount[channel_index]);
    }
 
    Serial.println("---------------------------");
-   Serial.printf("TOTAL     :\t%7lu\n", gCallbackCount[0]);
+   Serial.printf("TOTAL     :\t%7lu\t\t%7lu\t%7lu\t%7lu\t%7lu\n", gCallbackCount[0], gDatagramTypeMgmtCount[0], gDatagramTypeCtrlCount[0], gDatagramTypeDataCount[0], gDatagramTypeRsrvCount[0]);
    Serial.println("-------------------------------------------------------------------------------------");
  }
 
@@ -348,7 +386,7 @@ void promiscuous_callback(void *buf, wifi_promiscuous_pkt_type_t type) {
    Serial.printf("Datagram Other:    %7lu\n", gDatagramCount_Other[channel_index]);
    Serial.println("---------------------------");
    Serial.printf("Type      Mgmt:    %7lu\n", gDatagramTypeMgmtCount[channel_index]);
-   Serial.printf("Type      Cntl:    %7lu\n", gDatagramTypeCntlCount[channel_index]);
+   Serial.printf("Type      Cntl:    %7lu\n", gDatagramTypeCtrlCount[channel_index]);
    Serial.printf("Type      Data:    %7lu\n", gDatagramTypeDataCount[channel_index]);
    Serial.printf("Type      Rsrv:    %7lu\n", gDatagramTypeRsrvCount[channel_index]);
    Serial.println("---------------------------");
